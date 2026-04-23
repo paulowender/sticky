@@ -554,36 +554,34 @@ export class Application extends Adw.Application {
     });
 
     try {
-      const file = await new Promise<Gio.File | null>((resolve, reject) => {
-        dialog.save(this.active_window, null, (obj, res) => {
-          try {
-            resolve(obj!.save_finish(res));
-          } catch (err) {
-            reject(err);
-          }
-        });
-      });
+      const file = await dialog.save(this.active_window, null);
+      if (!file) return;
 
-      if (file) {
-        const notes = this.notes_array();
-        const data = {
-          v: 1,
-          notes: notes.map((n) => n.toJSON()),
-        };
-        const encoder = new TextEncoder();
-        file.replace_contents(
-          encoder.encode(JSON.stringify(data, null, 2)),
-          null,
-          false,
-          Gio.FileCreateFlags.NONE,
-          null,
-        );
-      }
+      const notes = this.notes_array();
+      const data = {
+        v: 1,
+        notes: notes.map((n) => n.toJSON()),
+      };
+      const encoder = new TextEncoder();
+      file.replace_contents(
+        encoder.encode(JSON.stringify(data, null, 2)),
+        null,
+        false,
+        Gio.FileCreateFlags.NONE,
+        null,
+      );
     } catch (err) {
       if (err instanceof GLib.Error && err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED)) {
         return;
       }
       console.error("Failed to export notes:", err);
+      const error_dialog = Adw.MessageDialog.new(
+        this.active_window,
+        _("Failed to Export Notes"),
+        err instanceof Error ? err.message : String(err)
+      );
+      error_dialog.add_response("ok", _("OK"));
+      error_dialog.present();
     }
   }
 
@@ -593,41 +591,40 @@ export class Application extends Adw.Application {
     });
 
     try {
-      const file = await new Promise<Gio.File | null>((resolve, reject) => {
-        dialog.open(this.active_window, null, (obj, res) => {
-          try {
-            resolve(obj!.open_finish(res));
-          } catch (err) {
-            reject(err);
-          }
-        });
-      });
+      const file = await dialog.open(this.active_window, null);
+      if (!file) return;
 
-      if (file) {
-        const [success, contents] = file.load_contents(null);
-        if (success) {
-          const decoder = new TextDecoder();
-          const data = JSON.parse(decoder.decode(contents));
-          if (data.v === 1 && Array.isArray(data.notes)) {
-            data.notes.forEach((noteData: INote) => {
-              // Avoid duplicates by UUID
-              if (!this.find_note(noteData.uuid)) {
-                const note = new Note(noteData);
-                note.connect("notify::modified", () => save_note(note));
-                note.connect("notify::open", () => save_note(note));
-                this.notes_list.append(note);
-                save_note(note);
-              }
-            });
-            this.sort_notes();
-          }
+      const [success, contents] = file.load_contents(null);
+      if (!success) return;
+
+      const decoder = new TextDecoder();
+      const data = JSON.parse(decoder.decode(contents));
+
+      if (data.v !== 1 || !Array.isArray(data.notes)) return;
+
+      data.notes.forEach((noteData: INote) => {
+        // Avoid duplicates by UUID
+        if (!this.find_note(noteData.uuid)) {
+          const note = new Note(noteData);
+          note.connect("notify::modified", () => save_note(note));
+          note.connect("notify::open", () => save_note(note));
+          this.notes_list.append(note);
+          save_note(note);
         }
-      }
+      });
+      this.sort_notes();
     } catch (err) {
       if (err instanceof GLib.Error && err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED)) {
         return;
       }
       console.error("Failed to import notes:", err);
+      const error_dialog = Adw.MessageDialog.new(
+        this.active_window,
+        _("Failed to Import Notes"),
+        err instanceof Error ? err.message : String(err)
+      );
+      error_dialog.add_response("ok", _("OK"));
+      error_dialog.present();
     }
   }
 
